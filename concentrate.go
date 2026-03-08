@@ -55,6 +55,9 @@ type Session struct {
 	idleTimeout time.Duration
 	itvTimeout  time.Duration
 
+	// ctx is set by Finish before the read loop and used by background goroutines.
+	ctx context.Context
+
 	progressDone chan struct{} // closed to stop the progress goroutine
 	watchCh      chan watchWork
 	watchDone    chan struct{}
@@ -90,6 +93,7 @@ func New(client genai.Provider, question string, stdout io.Writer, isTTY bool, t
 		timeout:       timeout,
 		idleTimeout:   1_200 * time.Millisecond,
 		itvTimeout:    180 * time.Millisecond,
+		ctx:           context.Background(),
 		nextID:        1,
 		rendered:      make(map[[2]int]struct{}),
 		progressPhase: "collecting",
@@ -109,7 +113,7 @@ func (s *Session) Push(chunk []byte) {
 	if s.pass {
 		s.mu.Unlock()
 		s.outMu.Lock()
-		s.stdout.Write(chunk) //nolint:errcheck
+		_, _ = s.stdout.Write(chunk)
 		s.outMu.Unlock()
 		return
 	}
@@ -130,11 +134,15 @@ func (s *Session) Push(chunk []byte) {
 
 // Finish reads r to completion, then waits for output to be written.
 func (s *Session) Finish(ctx context.Context, r io.Reader) error {
+	s.mu.Lock()
+	s.ctx = ctx
+	s.mu.Unlock()
+
 	buf := make([]byte, 32*1024)
 	for {
 		n, rerr := r.Read(buf)
 		if n > 0 {
-			s.Push(buf[:n])
+			s.Push(buf[:n]) //nolint:contextcheck // ctx stored in s.ctx before this loop
 		}
 		if rerr == io.EOF {
 			break
@@ -246,7 +254,7 @@ func (s *Session) restartInteractiveTimer() {
 
 		s.StopProgress()
 		s.outMu.Lock()
-		s.stdout.Write(raw) //nolint:errcheck
+		_, _ = s.stdout.Write(raw)
 		s.outMu.Unlock()
 	})
 }
@@ -331,8 +339,11 @@ func (s *Session) scheduleWatch() {
 // watchWorker processes watch summaries sequentially from watchCh.
 func (s *Session) watchWorker() {
 	defer close(s.watchDone)
+	s.mu.Lock()
+	baseCtx := s.ctx
+	s.mu.Unlock()
 	for work := range s.watchCh {
-		ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+		ctx, cancel := context.WithTimeout(baseCtx, s.timeout)
 		msgs := genai.Messages{{Requests: []genai.Request{
 			{Text: fmt.Sprintf("%s\n\nQuestion: %s", watchRules, s.question)},
 			{Doc: genai.Doc{Filename: "previous.txt", Src: strings.NewReader(work.prev.normalized)}},
@@ -388,7 +399,7 @@ func (s *Session) watchFallback(raw string) {
 // with respect to all prior stdout writes. Useful in tests.
 func (s *Session) Flush() {
 	s.outMu.Lock()
-	s.outMu.Unlock() //nolint:staticcheck
+	s.outMu.Unlock() //nolint:gocritic,staticcheck // intentional: establishes happens-before with prior writes
 }
 
 var (
@@ -396,6 +407,7 @@ var (
 	dotFrames  = [6]string{"", ".", "..", "...", "..", "."}
 )
 
+// StopProgress signals the progress goroutine to stop.
 func (s *Session) StopProgress() {
 	select {
 	case <-s.progressDone:
@@ -404,8 +416,9 @@ func (s *Session) StopProgress() {
 	}
 }
 
+// ProgressLoop renders a spinner on stderr until StopProgress is called.
 func (s *Session) ProgressLoop(stderr io.Writer) {
-	defer fmt.Fprint(stderr, "\r\x1b[2K") //nolint:errcheck
+	defer fmt.Fprint(stderr, "\r\x1b[2K") //nolint:errcheck // terminal clear-line; error not actionable
 	ticker := time.NewTicker(120 * time.Millisecond)
 	defer ticker.Stop()
 	labels := map[string]string{
@@ -524,8 +537,9 @@ func (s *Session) request(ctx context.Context, msgs genai.Messages, source strin
 			continue
 		}
 		if bad, err := qg.write(reply.Text); bad {
-			for range stream {} // drain
-			getResult()        //nolint:errcheck
+			for range stream {
+			} // drain
+			_, _ = getResult()
 			return false, nil
 		} else if err != nil {
 			return qg.live, err
@@ -536,4 +550,3 @@ func (s *Session) request(ctx context.Context, msgs genai.Messages, source strin
 	}
 	return qg.flush()
 }
-

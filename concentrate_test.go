@@ -3,6 +3,7 @@ package concentrate
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"net/http"
@@ -31,15 +32,15 @@ func (m *mockProvider) OutputModalities() genai.Modalities       { return nil }
 func (m *mockProvider) Capabilities() genai.ProviderCapabilities { return genai.ProviderCapabilities{} }
 func (m *mockProvider) Scoreboard() scoreboard.Score             { return scoreboard.Score{} }
 func (m *mockProvider) HTTPClient() *http.Client                 { return nil }
-func (m *mockProvider) GenStream(_ context.Context, _ genai.Messages, _ ...genai.GenOption) (iter.Seq[genai.Reply], func() (genai.Result, error)) {
+func (m *mockProvider) GenStream(_ context.Context, _ genai.Messages, _ ...genai.GenOption) (stream iter.Seq[genai.Reply], getResult func() (genai.Result, error)) {
 	m.calls++
 	return func(yield func(genai.Reply) bool) {
-		if m.err == nil {
-			yield(genai.Reply{Text: m.result})
+			if m.err == nil {
+				yield(genai.Reply{Text: m.result})
+			}
+		}, func() (genai.Result, error) {
+			return genai.Result{}, m.err
 		}
-	}, func() (genai.Result, error) {
-		return genai.Result{}, m.err
-	}
 }
 func (m *mockProvider) ListModels(_ context.Context) ([]genai.Model, error) { return nil, nil }
 func (m *mockProvider) GenAsync(_ context.Context, _ genai.Messages, _ ...genai.GenOption) (genai.Job, error) {
@@ -52,7 +53,7 @@ func (m *mockProvider) CacheAddRequest(_ context.Context, _ genai.Messages, _, _
 	return "", nil
 }
 func (m *mockProvider) CacheList(_ context.Context) ([]genai.CacheEntry, error) { return nil, nil }
-func (m *mockProvider) CacheDelete(_ context.Context, _ string) error            { return nil }
+func (m *mockProvider) CacheDelete(_ context.Context, _ string) error           { return nil }
 
 func newSession(mock *mockProvider) (*Session, *bytes.Buffer) {
 	var buf bytes.Buffer
@@ -94,7 +95,7 @@ func TestConcentrator(t *testing.T) {
 	})
 
 	t.Run("fallback on error", func(t *testing.T) {
-		mock := &mockProvider{err: fmt.Errorf("connection refused")}
+		mock := &mockProvider{err: errors.New("connection refused")}
 		sess, buf := newSession(mock)
 
 		input := "raw output\n"
@@ -128,7 +129,7 @@ func TestConcentrator(t *testing.T) {
 			t.Errorf("expected raw output in passthrough mode; got %q", buf.String())
 		}
 
-		sess.Finish(t.Context(), strings.NewReader("")) //nolint:errcheck
+		sess.Finish(t.Context(), strings.NewReader("")) //nolint:errcheck,gosec // test cleanup: error irrelevant after passthrough
 	})
 
 	t.Run("watch mode detected", func(t *testing.T) {

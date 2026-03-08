@@ -130,7 +130,6 @@ func TestIsBadSummary(t *testing.T) {
 	})
 
 	for _, phrase := range []string{"please provide", "wish summarized", "provided command output"} {
-		phrase := phrase
 		t.Run("refusal: "+phrase, func(t *testing.T) {
 			if !isBadSummary("some output", phrase) {
 				t.Errorf("refusal phrase %q should be detected as bad", phrase)

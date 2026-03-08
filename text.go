@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	reANSI       = regexp.MustCompile(`\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`)
+	reANSI       = regexp.MustCompile(`\x1b(?:[\x40-\x5A\x5C-\x5F]|\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E])`)
 	reTrailSpace = regexp.MustCompile(`[ \t]+\n`)
 	reBlankLines = regexp.MustCompile(`\n{3,}`)
 	rePromptTail = regexp.MustCompile(`(?i)(?:\[[Yy]/[Nn]\]|\[[Nn]/[Yy]\]|\([Yy]/[Nn]\)|\([Nn]/[Yy]\)|password:|passphrase:|continue\?|proceed\?)\s*$`)

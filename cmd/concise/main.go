@@ -59,7 +59,7 @@ func version() string {
 
 func main() {
 	if err := mainImpl(); err != nil {
-		fmt.Fprintf(os.Stderr, "concentrate: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "concentrate: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -81,7 +81,7 @@ func mainImpl() error {
 
 	flag.Usage = func() {
 		out := flag.CommandLine.Output()
-		fmt.Fprintf(out, `usage: concise [flags] "question"
+		_, _ = fmt.Fprintf(out, `usage: concise [flags] "question"
 
 Compress command output for LLMs — pipe stdin through concise to save tokens.
 
@@ -94,7 +94,7 @@ Examples:
 Flags:
 `)
 		flag.PrintDefaults()
-		fmt.Fprintf(out, `
+		_, _ = fmt.Fprintf(out, `
 Environment variables:
   CONCISE_PROVIDER  provider name (overridden by -provider)
   CONCISE_MODEL     model name or alias: %s, %s, %s (default: %s)
@@ -109,9 +109,9 @@ Providers (* = reachable):
 			if _, ok := avail[name]; ok {
 				mark = "*"
 			}
-			fmt.Fprintf(out, "  %s %s\n", mark, name)
+			_, _ = fmt.Fprintf(out, "  %s %s\n", mark, name)
 		}
-		fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out)
 	}
 	flag.StringVar(&provider, "provider", provider, "provider name (e.g. ollama, anthropic)")
 	flag.StringVar(&provider, "p", provider, "shorthand for -provider")
